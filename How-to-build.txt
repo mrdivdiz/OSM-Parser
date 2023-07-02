@@ -1,23 +1,19 @@
 Требуется MSVC 2015, Qt Creator ~~2.2.1 (Qt 4.7.4)~~ 3.0.0 (Qt 5.2.0)
 Для сборки с libosmium требуется добавить в qmake .pro файл флаг -std=c++0x и несколько includepath.
 
-~~INCLUDEPATH += "C:\Program Files (x86)\Windows Kits\10\Include\10.0.17763.0\ucrt"
-INCLUDEPATH += "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.17763.0\ucrt\x64"
-INCLUDEPATH += "J:\Development\MSVC2015\VC\include"~~
+~~INCLUDEPATH += "J:\Development\MSVC2015\VC\include"~~
 INCLUDEPATH += "J:\Development\GnuWin32\include"
 
 Первые два - библиотеки windows kit. Второе - VC/include в папке MSVC. Третья папка в принципе может
-валяться внутри проекта, тут она вынесена отдельно. Что в ней (в т.ч. бинарники):
-bzlib 
+валяться внутри проекта, тут она вынесена отдельно. Что в ней:
+protozero
 expat
 gzip
-protozero
 Все это не требует предварительной сборки в .lib, только для тестов (см. документацию)
-~~vcruntime.h может выдавать ошибки при сборке, это вызвано не совсем стандартной (общепринятой) реализацией
-в MSVC (например, суффикс LL (long long) заменен на i64). В этом случае нужно снимать с файлов флажок read-only
-и править вручную.~~ Лучше вообще не использовать компилятор MSVC, встроенный в Qt Creator MinGW достаточен.
+boost 
+bzlib 
+А эти требуют сборку перед использованием.
 
-UPD1:
 MSVC не нужен, если убрать интеграцию с crtdbg.~~ Qt 4.7.4 использует слишком старый MinGW 4.4 с древним тулчейном, как я понял,
 GCC меньше 4.3, а для поддержки atomic и
 future (это части более нового стандарта C++) нужно поставить что-то поновее. Я поставил другой MinGW отдельно с GCC 6.0.~~
