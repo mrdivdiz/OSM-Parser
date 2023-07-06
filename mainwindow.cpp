@@ -116,31 +116,24 @@ bool MainWindow::exportTramsDo()
     std::string output_file_name = fileName2.toStdString();
 
     try {
+        int noloopcut = 0;
             // Инициализация ридера
             osmium::io::File input_file{input_file_name};
             osmium::io::Reader reader{input_file_name, osmium::osm_entity_bits::all};
+            osmium::io::Reader reader2{input_file_name, osmium::osm_entity_bits::all};
+            //osmium::io::Reader reader2{input_file_name, osmium::osm_entity_bits::relation}; //Только отношения
            // osmium::io::Reader reader{"input.osm.pbf", osmium::osm_entity_bits::way};//Позволяет
             // считывать только сами пути, игнорируя ненужные в данный момент детали
 
-            // Получаем заголовок из файла и меняем настройку "generator" на "osmium_convert".
-            // Не совсем понятно, зачем это нужно.
-            //https://osmcode.org/libosmium/manual.html#input-and-output - 9.Input and output. - The File Header
-
-            osmium::io::Header header = reader.header();
+            osmium::io::Header header = reader.header();//Берем заголовок, но не меняем его
             //header.set("generator", "osmium_convert");
 
-            // Инициализируем IO на запись с заголовком выше.
-            // osmium::io::overwrite::allow позволяет перезаписать входной файл.
-            //osmium::io::Writer writer{output_file_name, header, osmium::io::overwrite::allow};
             osmium::io::Writer writer{output_file_name};
 
             //Фильтруем только трамвайные пути по тегам
             osmium::TagsFilter filter1{false};
-           // osmium::TagsFilter filter2{false};
-           // osmium::TagsFilter filter3{false};
-           // osmium::TagsFilter filter4{false};
 
-            ParsManager mngr;
+            ParsManager mngr;//без аргументов, как в доках
 
             osmium::relations::read_relations(input_file, mngr);
 
@@ -181,14 +174,18 @@ bool MainWindow::exportTramsDo()
                         writer(rltn);
                     }
                 }
+                noloopcut++;
             }
 
-            osmium::apply(reader, mngr.handler());
 
-            while (osmium::memory::Buffer bufr = mngr.read()) {
-                for (const auto& object : bufr.select<osmium::OSMObject>()) {
+
+            for(int i = 0; i < noloopcut; i++) {
+                osmium::memory::Buffer buffer = reader2.read();
+                for (const auto& object : buffer.select<osmium::OSMObject>()) {
                     if (osmium::tags::match_any_of(object.tags(), filter1)) {
-                        writer(object);
+                        osmium::apply(reader, mngr.handler());
+                        writer(object);                             //TODO Can not read from reader when in status 'closed', 'eof', or 'error'
+                                                                    //https://osmcode.org/libosmium/manual.html#working-with-relations
                     }
                 }
             }
@@ -198,6 +195,8 @@ bool MainWindow::exportTramsDo()
             // destructors must not throw
             writer.close();
             reader.close();
+            reader2.close();
+
         } catch (const std::exception& e) {
             // All exceptions used by the Osmium library derive from std::exception.
         //Стандартное исключение
