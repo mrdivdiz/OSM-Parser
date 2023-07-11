@@ -233,12 +233,12 @@ bool MainWindow::exportTramsDo()
                        writer(weis);
                        for (const osmium::NodeRef& nr : weis.nodes()) {
                            //std::cout << "ref=" << nr.ref() << " location=" << nr.location() << '\n';
-                           if(nr.x() > targ_lon1 && nr.x() < targ_lon2 &&
-                                   nr.y() > targ_lat1 && nr.y() < targ_lat2){
+                         //  if(nr.x() > targ_lon1 && nr.x() < targ_lon2 &&
+                         //          nr.y() > targ_lat1 && nr.y() < targ_lat2){
                            w_nodes.insert(nr.ref());
                            //std::cout << "loc=" << nr.location();
-                       }
-                           std::cout << " way loc= " << nr.x() << " " << nr.y() << " ";
+                       //}
+                           //std::cout << " way loc= " << nr.x() << " " << nr.y() << " ";
                    }
 
                }
@@ -249,12 +249,16 @@ bool MainWindow::exportTramsDo()
             while (osmium::memory::Buffer buffer = reader2.read()) {
                for (const auto& nod : buffer.select<osmium::Node>()) {
                    if (w_nodes.count(nod.id())||osmium::tags::match_any_of(nod.tags(), filter1)) {
-                       if(safeFloatToInt((nod.location().lon()*10000000)) > targ_lon1 && safeFloatToInt((nod.location().lon()*10000000)) < targ_lon2 &&
-                               safeFloatToInt((nod.location().lat()*10000000)) > targ_lat1 && safeFloatToInt((nod.location().lat()*10000000)) < targ_lat2){
+                       int targ_lon_int = safeFloatToInt(nod.location().lon()*10000000);
+                       int targ_lat_int = safeFloatToInt(nod.location().lat()*10000000);
+                       if(targ_lon_int > targ_lon1 && targ_lon_int < targ_lon2 &&
+                               targ_lat_int > targ_lat1 && targ_lat_int < targ_lat2){
                                 writer(nod);
+
+
+                            }
+                       std::cout << " node loc= " << targ_lon_int << " " << targ_lat_int << " \n";
                        }
-                       std::cout << " node loc= " << (nod.location().lon()*10000000) << " " << (nod.location().lat()*10000000) << " ";
-                   }
                }
             }
 
