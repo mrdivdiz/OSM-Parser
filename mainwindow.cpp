@@ -17,19 +17,20 @@
 #include <exception>
 #include <iostream>
 #include <string>
+#include <limits>
 
 template <class FloatType>
 int safeFloatToInt(const FloatType &num) {
    //check if float fits into integer
-   if ( numeric_limits<int>::digits < numeric_limits<FloatType>::digits) {
+   if ( std::numeric_limits<int>::digits < std::numeric_limits<FloatType>::digits) {
       // check if float is smaller than max int
-      if( (num < static_cast<FloatType>( numeric_limits<int>::max())) &&
-          (num > static_cast<FloatType>( numeric_limits<int>::min())) ) {
+      if( (num < static_cast<FloatType>( std::numeric_limits<int>::max())) &&
+          (num > static_cast<FloatType>( std::numeric_limits<int>::min())) ) {
          return static_cast<int>(num); //safe to cast
       } else {
-        cerr << "Unsafe conversion of value:" << num << endl;
+        std::cerr << "Unsafe conversion of value:" << num << endl;
         //NaN is not defined for int return the largest int value
-        return numeric_limits<int>::max();
+        return std::numeric_limits<int>::max();
       }
    } else {
       //It is safe to cast
