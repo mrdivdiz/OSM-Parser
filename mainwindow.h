@@ -9,6 +9,11 @@ class QMenu;
 class QPlainTextEdit;
 QT_END_NAMESPACE
 
+const int targ_lat1 = 200000000;
+const int targ_lat2 = 210000000;
+const int targ_lon1 = 540000000;
+const int targ_lon2 = 550000000;
+
 //! [0]
 class MainWindow : public QMainWindow
 {
@@ -21,12 +26,7 @@ protected:
     void closeEvent(QCloseEvent *event);
 
 private slots:
-    void newFile();
-    void open();
     bool exportTramsDo();
-    bool save();
-    bool saveAs();
-    void about();
     void documentWasModified();
 
 private:
@@ -36,7 +36,6 @@ private:
     void createStatusBar();
     void readSettings();
     void writeSettings();
-    bool maybeSave();
     void loadFile(const QString &fileName);
     bool saveFile(const QString &fileName);
     bool exportTrams(const QString &fileName);
@@ -51,17 +50,8 @@ private:
     QMenu *helpMenu;
     QToolBar *fileToolBar;
     QToolBar *editToolBar;
-    QAction *newAct;
-    QAction *openAct;
     QAction *exportTramsAct;
-    QAction *saveAct;
-    QAction *saveAsAct;
     QAction *exitAct;
-    QAction *cutAct;
-    QAction *copyAct;
-    QAction *pasteAct;
-    QAction *aboutAct;
-    QAction *aboutQtAct;
 };
 //! [0]
 

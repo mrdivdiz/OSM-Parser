@@ -7,6 +7,8 @@
 #include <osmium/io/any_input.hpp>
 #include <osmium/tags/taglist.hpp>
 #include <osmium/tags/tags_filter.hpp>
+#include <osmium/osm/location.hpp>
+#include <osmium/osm/box.hpp>
 #include <osmium/handler/object_relations.hpp>
 #include <osmium/index/map/sparse_mem_array.hpp>
 #include <osmium/index/multimap/sparse_mem_array.hpp>
@@ -15,6 +17,25 @@
 #include <exception>
 #include <iostream>
 #include <string>
+
+template <class FloatType>
+int safeFloatToInt(const FloatType &num) {
+   //check if float fits into integer
+   if ( numeric_limits<int>::digits < numeric_limits<FloatType>::digits) {
+      // check if float is smaller than max int
+      if( (num < static_cast<FloatType>( numeric_limits<int>::max())) &&
+          (num > static_cast<FloatType>( numeric_limits<int>::min())) ) {
+         return static_cast<int>(num); //safe to cast
+      } else {
+        cerr << "Unsafe conversion of value:" << num << endl;
+        //NaN is not defined for int return the largest int value
+        return numeric_limits<int>::max();
+      }
+   } else {
+      //It is safe to cast
+      return static_cast<int>(num);
+   }
+}
 
 using map_type = osmium::index::multimap::SparseMemArray<osmium::unsigned_object_id_type, osmium::unsigned_object_id_type>;
 
@@ -38,7 +59,7 @@ public:
                 // Get the member object
                 const osmium::OSMObject* obj = this->get_member_object(member);
 
-                // If you know which type you have you can also use any of these:
+                // Работаю с данными здесь
                 const osmium::Node* node         = this->get_member_node(member.ref());
                 const osmium::Way* way           = this->get_member_way(member.ref());
                 const osmium::Relation* relation = this->get_member_relation(member.ref());
@@ -49,6 +70,8 @@ public:
 
 };
 
+
+
 MainWindow::MainWindow()
 {
     textEdit = new QPlainTextEdit;
@@ -56,7 +79,7 @@ MainWindow::MainWindow()
 
     createActions();
     createMenus();
-    createToolBars();
+    //createToolBars();
     createStatusBar();
 
     readSettings();
@@ -71,32 +94,55 @@ MainWindow::MainWindow()
 
 
 void MainWindow::closeEvent(QCloseEvent *event)
-
 {
-    if (maybeSave()) {
-        writeSettings();
         event->accept();
-    } else {
-        event->ignore();
-    }
 }
 
-void MainWindow::newFile()
 
-{
-    if (maybeSave()) {
-        textEdit->clear();
-        setCurrentFile("");
-    }
-}
 
-void MainWindow::open()
 
-{
-    if (maybeSave()) {
-        QString fileName = QFileDialog::getOpenFileName(this);
-        if (!fileName.isEmpty())
-            loadFile(fileName);
+void Tgf(std::string input_file, std::string output_file){
+    try {
+        // Initialize Reader
+        osmium::io::Reader reader{input_file};
+
+        // Get header from input file and change the "generator" setting to
+        // ourselves.
+        osmium::io::Header header = reader.header();
+        header.set("generator", "osmium_convert");
+
+        // Initialize Writer using the header from above and tell it that it
+        // is allowed to overwrite a possibly existing file.
+        osmium::io::Writer writer{output_file, header, osmium::io::overwrite::allow};
+
+        // Match highway=primary or highway=secondary
+        osmium::TagsFilter filter1{false};
+        filter1.add_rule(true, "highway", "primary");
+        filter1.add_rule(true, "highway", "secondary");
+
+        // Match oneway=yes
+        osmium::TagsFilter filter2{false};
+        filter2.add_rule(true, "oneway", "yes");
+
+        // Get all object matching both filters
+        while (osmium::memory::Buffer buffer = reader.read()) { // NOLINT(bugprone-use-after-move) Bug in clang-tidy https://bugs.llvm.org/show_bug.cgi?id=36516
+            for (const auto& object : buffer.select<osmium::OSMObject>()) {
+                if (osmium::tags::match_any_of(object.tags(), filter1) &&
+                    osmium::tags::match_any_of(object.tags(), filter2)) {
+                    writer(object);
+                }
+            }
+        }
+
+        // Explicitly close the writer and reader. Will throw an exception if
+        // there is a problem. If you wait for the destructor to close the writer
+        // and reader, you will not notice the problem, because destructors must
+        // not throw.
+        writer.close();
+        reader.close();
+    } catch (const std::exception& e) {
+        // All exceptions used by the Osmium library derive from std::exception.
+        std::cerr << e.what() << '\n';
     }
 }
 
@@ -119,11 +165,9 @@ bool MainWindow::exportTramsDo()
         int noloopcut = 0;
             // Инициализация ридера
             osmium::io::File input_file{input_file_name};
-            osmium::io::Reader reader{input_file_name, osmium::osm_entity_bits::all};
-            osmium::io::Reader reader2{input_file_name, osmium::osm_entity_bits::all};
-            //osmium::io::Reader reader2{input_file_name, osmium::osm_entity_bits::relation}; //Только отношения
-           // osmium::io::Reader reader{"input.osm.pbf", osmium::osm_entity_bits::way};//Позволяет
-            // считывать только сами пути, игнорируя ненужные в данный момент детали
+            osmium::io::Reader reader{input_file_name, osmium::osm_entity_bits::relation};
+            osmium::io::Reader reader1{input_file_name, osmium::osm_entity_bits::way};
+            osmium::io::Reader reader2{input_file_name, osmium::osm_entity_bits::node};
 
             osmium::io::Header header = reader.header();//Берем заголовок, но не меняем его
             //header.set("generator", "osmium_convert");
@@ -148,53 +192,75 @@ bool MainWindow::exportTramsDo()
             filter1.add_rule(true, "light_rail", "*");// Маршруты трамвая 2, потому что кому вообще нужны стандарты?
             filter1.add_rule(true, "disused:railway", "tram");//Заброшенные пути
             filter1.add_rule(true, "disused", "tram");//Заброшенные пути
-            //filter1.add_rule(true, "building", "yes");//Домики, чтобы было похоже на карту
 
-            // Получаем все объекты данного типа.
-            while (osmium::memory::Buffer buffer = reader.read()) { // NOLINT(bugprone-use-after-move) Bug in clang-tidy https://bugs.llvm.org/show_bug.cgi?id=36516
-                /*for (const auto& object : buffer.select<osmium::OSMObject>()) {// Выше описан какой-то баг чего-то низкоуровневого
-                    if (osmium::tags::match_any_of(object.tags(), filter1)) {
-                        writer(object);
-                    }
-                }*/
-                for (const auto& nod : buffer.select<osmium::Node>()) {
-                    if (osmium::tags::match_any_of(nod.tags(), filter1)) {
-                        writer(nod);
-                    }
-                }
 
-                for (const auto& wei : buffer.select<osmium::Way>()) {
-                    if (osmium::tags::match_any_of(wei.tags(), filter1)) {
-                        writer(wei);
-                    }
-                }
 
-                for (const auto& rltn : buffer.select<osmium::Way>()) {
+            //Создаем контейнер (set) для хранения имен (id) узлов (nodes)
+            // встреченных при первом обходе путей
+            std::set<osmium::object_id_type> w_nodes;
+
+            //Создаем контейнер (set) для хранения имен (id) путей (ways)
+            // встреченных при первом обходе отношений
+            std::set<osmium::object_id_type> r_ways;
+
+             // Получаем все объекты данного типа.
+            while (osmium::memory::Buffer buffer = reader.read()) {
+
+                for (const auto& rltn : buffer.select<osmium::Relation>()) {
                     if (osmium::tags::match_any_of(rltn.tags(), filter1)) {
                         writer(rltn);
+                        for (const osmium::RelationMember& nr : rltn.members()) {
+                            //std::cout << "ref=" << nr.ref() << " location=" << nr.location() << '\n';
+                            if(nr.type()==osmium::item_type::node){
+                                w_nodes.insert(nr.ref());
+                            }
+                            if(nr.type()==osmium::item_type::way){
+                                r_ways.insert(nr.ref());
+                            }
+                        }
                     }
                 }
                 noloopcut++;
             }
+            reader.close();
 
+            std::cout << "w_nodes count=" << w_nodes.size() << " r_ways =" << r_ways.size() << '\n';
 
+            while (osmium::memory::Buffer buffer = reader1.read()) {
+               for (const auto& weis : buffer.select<osmium::Way>()) {
+                   if (r_ways.count(weis.id())||osmium::tags::match_any_of(weis.tags(), filter1)) {
+                       writer(weis);
+                       for (const osmium::NodeRef& nr : weis.nodes()) {
+                           //std::cout << "ref=" << nr.ref() << " location=" << nr.location() << '\n';
+                           if(nr.x() > targ_lon1 && nr.x() < targ_lon2 &&
+                                   nr.y() > targ_lat1 && nr.y() < targ_lat2){
+                           w_nodes.insert(nr.ref());
+                           //std::cout << "loc=" << nr.location();
+                       }
+                           std::cout << " way loc= " << nr.x() << " " << nr.y() << " ";
+                   }
 
-            for(int i = 0; i < noloopcut; i++) {
-                osmium::memory::Buffer buffer = reader2.read();
-                for (const auto& object : buffer.select<osmium::OSMObject>()) {
-                    if (osmium::tags::match_any_of(object.tags(), filter1)) {
-                        osmium::apply(reader, mngr.handler());
-                        writer(object);                             //TODO Can not read from reader when in status 'closed', 'eof', or 'error'
-                                                                    //https://osmcode.org/libosmium/manual.html#working-with-relations
-                    }
-                }
+               }
+            }
+            }
+            reader1.close();
+
+            while (osmium::memory::Buffer buffer = reader2.read()) {
+               for (const auto& nod : buffer.select<osmium::Node>()) {
+                   if (w_nodes.count(nod.id())||osmium::tags::match_any_of(nod.tags(), filter1)) {
+                       if(safeFloatToInt((nod.location().lon()*10000000)) > targ_lon1 && safeFloatToInt((nod.location().lon()*10000000)) < targ_lon2 &&
+                               safeFloatToInt((nod.location().lat()*10000000)) > targ_lat1 && safeFloatToInt((nod.location().lat()*10000000)) < targ_lat2){
+                                writer(nod);
+                       }
+                       std::cout << " node loc= " << (nod.location().lon()*10000000) << " " << (nod.location().lat()*10000000) << " ";
+                   }
+               }
             }
 
             // Жестко прибиваем IO на считывание и запись. Если есть проблема,
             // она обнаружится на этом этапе.
             // destructors must not throw
             writer.close();
-            reader.close();
             reader2.close();
 
         } catch (const std::exception& e) {
@@ -203,44 +269,8 @@ bool MainWindow::exportTramsDo()
             std::cerr << e.what() << '\n';
             return 1;
         }
-
-
-
-
-
-
     return false;
 }
-
-bool MainWindow::save()
-
-{
-    if (curFile.isEmpty()) {
-        return saveAs();
-    } else {
-        return saveFile(curFile);
-    }
-}
-
-bool MainWindow::saveAs()
-
-{
-    QString fileName = QFileDialog::getSaveFileName(this);
-    if (fileName.isEmpty())
-        return false;
-
-    return saveFile(fileName);
-}
-
-void MainWindow::about()
-
-{
-   QMessageBox::about(this, tr("О приложении"),
-            tr("<b>OSMParser</b> позволяет выгружать из файлов "
-               "формата OpenStreetMap (.XML, .PBF и т.д.)"
-               "данные о Ж/Д путях и добавлять их в базу данных"));
-}
-
 void MainWindow::documentWasModified()
 
 {
@@ -250,68 +280,17 @@ void MainWindow::documentWasModified()
 void MainWindow::createActions()
 
 {
-    newAct = new QAction(QIcon(":/images/new.png"), tr("&New"), this);
-    newAct->setShortcuts(QKeySequence::New);
-    newAct->setStatusTip(tr("Create a new file"));
-    connect(newAct, SIGNAL(triggered()), this, SLOT(newFile()));
-
-    openAct = new QAction(QIcon(":/images/open.png"), tr("&Open..."), this);
-    openAct->setShortcuts(QKeySequence::Open);
-    openAct->setStatusTip(tr("Open an existing file"));
-    connect(openAct, SIGNAL(triggered()), this, SLOT(open()));
-
-    saveAct = new QAction(QIcon(":/images/save.png"), tr("&Save"), this);
-    saveAct->setShortcuts(QKeySequence::Save);
-    saveAct->setStatusTip(tr("Save the document to disk"));
-    connect(saveAct, SIGNAL(triggered()), this, SLOT(save()));
 
     exportTramsAct = new QAction(QIcon(":/images/save.png"), tr("&Эскпорт трамв. путей"), this);
     exportTramsAct->setShortcuts(QKeySequence::Save);
     exportTramsAct->setStatusTip(tr("Экспорт трамвайных путей"));
     connect(exportTramsAct, SIGNAL(triggered()), this, SLOT(exportTramsDo()));
 
-    saveAsAct = new QAction(tr("Save &As..."), this);
-    saveAsAct->setShortcuts(QKeySequence::SaveAs);
-    saveAsAct->setStatusTip(tr("Save the document under a new name"));
-    connect(saveAsAct, SIGNAL(triggered()), this, SLOT(saveAs()));
-
     exitAct = new QAction(tr("E&xit"), this);
     exitAct->setShortcuts(QKeySequence::Quit);
     exitAct->setStatusTip(tr("Exit the application"));
     connect(exitAct, SIGNAL(triggered()), this, SLOT(close()));
 
-    cutAct = new QAction(QIcon(":/images/cut.png"), tr("Cu&t"), this);
-    cutAct->setShortcuts(QKeySequence::Cut);
-    cutAct->setStatusTip(tr("Cut the current selection's contents to the "
-                            "clipboard"));
-    connect(cutAct, SIGNAL(triggered()), textEdit, SLOT(cut()));
-
-    copyAct = new QAction(QIcon(":/images/copy.png"), tr("&Copy"), this);
-    copyAct->setShortcuts(QKeySequence::Copy);
-    copyAct->setStatusTip(tr("Copy the current selection's contents to the "
-                             "clipboard"));
-    connect(copyAct, SIGNAL(triggered()), textEdit, SLOT(copy()));
-
-    pasteAct = new QAction(QIcon(":/images/paste.png"), tr("&Paste"), this);
-    pasteAct->setShortcuts(QKeySequence::Paste);
-    pasteAct->setStatusTip(tr("Paste the clipboard's contents into the current "
-                              "selection"));
-    connect(pasteAct, SIGNAL(triggered()), textEdit, SLOT(paste()));
-
-    aboutAct = new QAction(tr("&About"), this);
-    aboutAct->setStatusTip(tr("Show the application's About box"));
-    connect(aboutAct, SIGNAL(triggered()), this, SLOT(about()));
-
-    aboutQtAct = new QAction(tr("About &Qt"), this);
-    aboutQtAct->setStatusTip(tr("Show the Qt library's About box"));
-    connect(aboutQtAct, SIGNAL(triggered()), qApp, SLOT(aboutQt()));
-
-    cutAct->setEnabled(false);
-    copyAct->setEnabled(false);
-    connect(textEdit, SIGNAL(copyAvailable(bool)),
-            cutAct, SLOT(setEnabled(bool)));
-    connect(textEdit, SIGNAL(copyAvailable(bool)),
-            copyAct, SLOT(setEnabled(bool)));
 }
 
 
@@ -320,35 +299,9 @@ void MainWindow::createMenus()
 
 {
     fileMenu = menuBar()->addMenu(tr("&File"));
-    fileMenu->addAction(newAct);
-    fileMenu->addAction(openAct);
-    fileMenu->addAction(saveAct);
     fileMenu->addAction(exportTramsAct);
-    fileMenu->addAction(saveAsAct);
     fileMenu->addSeparator();
     fileMenu->addAction(exitAct);
-    editMenu = menuBar()->addMenu(tr("&Edit"));
-    editMenu->addAction(cutAct);
-    editMenu->addAction(copyAct);
-    editMenu->addAction(pasteAct);
-
-    menuBar()->addSeparator();
-
-    helpMenu = menuBar()->addMenu(tr("&Help"));
-    helpMenu->addAction(aboutAct);
-    helpMenu->addAction(aboutQtAct);
-}
-
-void MainWindow::createToolBars()
-{
-    fileToolBar = addToolBar(tr("File"));
-    fileToolBar->addAction(newAct);
-    fileToolBar->addAction(openAct);
-    fileToolBar->addAction(saveAct);
-    editToolBar = addToolBar(tr("Edit"));
-    editToolBar->addAction(cutAct);
-    editToolBar->addAction(copyAct);
-    editToolBar->addAction(pasteAct);
 }
 
 void MainWindow::createStatusBar()
@@ -375,23 +328,6 @@ void MainWindow::writeSettings()
     settings.setValue("size", size());
 }
 
-bool MainWindow::maybeSave()
-
-{
-    if (textEdit->document()->isModified()) {
-        QMessageBox::StandardButton ret;
-        ret = QMessageBox::warning(this, tr("Application"),
-                     tr("The document has been modified.\n"
-                        "Do you want to save your changes?"),
-                     QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
-        if (ret == QMessageBox::Save)
-            return save();
-        else if (ret == QMessageBox::Cancel)
-            return false;
-    }
-    return true;
-}
-
 void MainWindow::loadFile(const QString &fileName)
 
 {
@@ -415,32 +351,6 @@ void MainWindow::loadFile(const QString &fileName)
 */
     setCurrentFile(fileName);
     statusBar()->showMessage(tr("File loaded"), 2000);
-}
-
-bool MainWindow::saveFile(const QString &fileName)
-
-{
-    QFile file(fileName);
-    if (!file.open(QFile::WriteOnly | QFile::Text)) {
-        QMessageBox::warning(this, tr("Application"),
-                             tr("Cannot write file %1:\n%2.")
-                             .arg(fileName)
-                             .arg(file.errorString()));
-        return false;
-    }
-
-    QTextStream out(&file);
-#ifndef QT_NO_CURSOR
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-#endif
-    out << textEdit->toPlainText();
-#ifndef QT_NO_CURSOR
-    QApplication::restoreOverrideCursor();
-#endif
-
-    setCurrentFile(fileName);
-    statusBar()->showMessage(tr("File saved"), 2000);
-    return true;
 }
 
 bool MainWindow::exportTrams(const QString &fileName)
